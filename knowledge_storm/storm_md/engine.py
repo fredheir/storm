@@ -76,11 +76,11 @@ class MarkdownSTORMRunner(Engine):
         self,
         topic: str,
         do_process_markdown: bool = True,
-        do_generate_outline: bool = True,
         do_generate_article: bool = True,
         do_polish_article: bool = True,
         remove_duplicate: bool = False,
         callback_handler: Optional[BaseCallbackHandler] = None,
+        additional_instructions: str = "",
     ):
         """
         Run the Markdown STORM pipeline.
@@ -88,21 +88,18 @@ class MarkdownSTORMRunner(Engine):
         Args:
             topic: The topic to generate content for.
             do_process_markdown: If True, process the markdown files; if False, expect processed_markdown_input.json to exist in the output directory.
-            do_generate_outline: If True, generate an outline for the topic; if False, expect storm_gen_outline.txt to exist in the output directory.
             do_generate_article: If True, generate an article for the topic; if False, expect storm_gen_article.txt to exist in the output directory.
             do_polish_article: If True, polish the article by adding a summarization section and (optionally) removing duplicated content.
             remove_duplicate: If True, remove duplicated content during article polishing.
             callback_handler: A callback handler to handle the intermediate results.
         """
-        assert (
-            do_process_markdown or do_generate_outline or do_generate_article or do_polish_article
-        ), makeStringRed(
-            "No action is specified. Please set at least one of --do-process-markdown, --do-generate-outline, --do-generate-article, --do-polish-article"
+        assert do_process_markdown or do_generate_article or do_polish_article, makeStringRed(
+            "No action is specified. Please set at least one of --do-process-markdown, --do-generate-article, --do-polish-article"
         )
 
         self.topic = topic
         self.article_dir_name = topic.replace(" ", "_").replace("/", "_")
-        self.article_output_dir = os.path.join(self.args.output_dir, self.article_dir_name)
+        self.article_output_dir = os.path.join(self.args.output_dir, self.article_dir_name, "storm")
         os.makedirs(self.article_output_dir, exist_ok=True)
 
         # Process markdown input
@@ -119,7 +116,7 @@ class MarkdownSTORMRunner(Engine):
         if draft_article is None:
             draft_article = self._load_draft_article_from_local_fs(
                 topic=topic,
-                draft_article_path=os.path.join(self.article_output_dir, "storm_gen_article_completed.txt"),
+                draft_article_path=os.path.join(self.article_output_dir, "storm_gen_article_completed.md"),
                 markdown_sources_path=os.path.join(self.article_output_dir, "markdown_sources.json"),
             )
 
@@ -128,6 +125,7 @@ class MarkdownSTORMRunner(Engine):
                 draft_article=draft_article,
                 information_table=InformationTable,
                 callback_handler=callback_handler,
+                additional_instructions=additional_instructions,
             )
 
         # Article polishing module
@@ -145,8 +143,8 @@ class MarkdownSTORMRunner(Engine):
             return_draft_outline=True,
             callback_handler=callback_handler,
         )
-        outline.dump_outline_to_file(os.path.join(self.article_output_dir, "storm_gen_outline.txt"))
-        draft_outline.dump_outline_to_file(os.path.join(self.article_output_dir, "direct_gen_outline.txt"))
+        outline.dump_outline_to_file(os.path.join(self.article_output_dir, "storm_gen_outline.md"))
+        draft_outline.dump_outline_to_file(os.path.join(self.article_output_dir, "direct_gen_outline.md"))
         return outline
 
     def run_article_generation_module(
@@ -162,7 +160,7 @@ class MarkdownSTORMRunner(Engine):
             callback_handler=callback_handler,
         )
         draft_article.dump_article_as_plain_text(
-            os.path.join(self.article_output_dir, "storm_gen_article.txt")
+            os.path.join(self.article_output_dir, "storm_gen_article.md")
         )
         draft_article.dump_reference_to_file(os.path.join(self.article_output_dir, "markdown_sources.json"))
         return draft_article
@@ -172,14 +170,19 @@ class MarkdownSTORMRunner(Engine):
         draft_article: StormArticle,
         information_table: InformationTable,
         callback_handler: Optional[BaseCallbackHandler] = None,
+        additional_instructions: str = "",
     ) -> StormArticle:
         completed_article = self.storm_article_completion.complete_article(
             article=draft_article,
             information_table=information_table,
             callback_handler=callback_handler,
+            additional_instructions=additional_instructions,
         )
         completed_article.dump_article_as_plain_text(
-            os.path.join(self.article_output_dir, "storm_gen_article_completed.txt")
+            os.path.join(self.article_output_dir, "storm_gen_article_completed.md")
+        )
+        completed_article.dump_reference_to_file(
+            os.path.join(self.article_output_dir, "markdown_sources.json")
         )
         return completed_article
 
@@ -191,7 +194,7 @@ class MarkdownSTORMRunner(Engine):
         )
         FileIOHelper.write_str(
             polished_article.to_string(),
-            os.path.join(self.article_output_dir, "storm_gen_article_polished.txt"),
+            os.path.join(self.article_output_dir, "storm_gen_article_polished.md"),
         )
         return polished_article
 

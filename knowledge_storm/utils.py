@@ -21,9 +21,10 @@ from trafilatura import extract
 
 logging.getLogger("httpx").setLevel(logging.WARNING)  # Disable INFO logging for httpx.
 
+
 def truncate_filename(filename, max_length=125):
     """Truncate filename to max_length to ensure the filename won't exceed the file system limit.
-    
+
     Args:
         filename: str
         max_length: int, default to 125 (usual path length limit is 255 chars)
@@ -35,6 +36,7 @@ def truncate_filename(filename, max_length=125):
         return truncated_filename
 
     return filename
+
 
 def load_api_key(toml_file_path):
     try:
@@ -265,7 +267,90 @@ class QdrantVectorStoreManager:
         qdrant.client.close()
 
 
+import re
+import os
+from typing import List, Dict, Any
+
+
 class ArticleTextProcessing:
+    @staticmethod
+    def preprocess_content(content: str) -> str:
+        def clean_paragraph(paragraph: str) -> str:
+            lines = paragraph.splitlines()
+
+            # Check if the paragraph is a table
+            if any("|" in line for line in lines):
+                # If it's a table, return it unchanged
+                return "\n".join(lines)
+
+            # For non-table paragraphs, proceed with cleaning
+            lines = list(dict.fromkeys(lines))  # Remove duplicates
+            lines = [line.strip() for line in lines if line.strip()]  # Remove empty lines and trim
+            lines = [re.sub(r"^\s*[^\w\s]+\s*$", "", line) for line in lines]  # Remove orphaned punctuation
+
+            # Remove common code artifacts and notes, but keep markdown headings
+            artifact_patterns = [
+                r"^\s*//.*$",  # Single-line comments
+                r"^\s*/\*.*?\*/\s*$",  # Multi-line comments
+                r"^\s*TODO:.*$",  # TODO notes
+                r"^\s*FIXME:.*$",  # FIXME notes
+                r"^\s*DEBUG:.*$",  # DEBUG notes
+            ]
+            for pattern in artifact_patterns:
+                lines = [line for line in lines if not re.match(pattern, line)]
+
+            return " ".join(lines)  # Join non-table lines
+
+        paragraphs = re.split(r"\n{2,}", content)
+        cleaned_paragraphs = [clean_paragraph(p) for p in paragraphs if p.strip()]
+        return cleaned_paragraphs
+
+    @staticmethod
+    def parse_article_into_dict(input_string: str) -> Dict[str, Any]:
+        cleaned_input = ArticleTextProcessing.preprocess_content(input_string)
+        # reduce newlines to a maximum of 2
+        # cleaned_input = re.sub(r"\n{3,}", "\n\n", cleaned_input)
+        # lines = cleaned_input.split("\n")
+        root = {"content": "", "subsections": {}}
+        current_path = [(root, -1)]  # (current_dict, level)
+
+        for line in cleaned_input:
+            if line.startswith("#"):
+                level = line.count("#")
+                title = line.strip("# ").strip()
+                new_section = {"content": "", "subsections": {}}
+
+                while current_path and current_path[-1][1] >= level:
+                    current_path.pop()
+
+                current_path[-1][0]["subsections"][title] = new_section
+                current_path.append((new_section, level))
+            else:
+                current_path[-1][0]["content"] += line + "\n\n"
+
+        return root["subsections"]
+
+    @staticmethod
+    def parse_markdown_file(file_path: str) -> Dict[str, Any]:
+        with open(file_path, "r", encoding="utf-8") as file:
+            content = file.read()
+        return ArticleTextProcessing.parse_article_into_dict(content)
+
+    @staticmethod
+    def combine_markdown_contents(markdown_files: List[str]) -> Dict[str, Dict[str, Any]]:
+        combined_content = {}
+        for counter, file in enumerate(markdown_files, 1):
+            content = ArticleTextProcessing.parse_markdown_file(file)
+            if content:
+                file_name = os.path.basename(file)
+                prefixed_content = {
+                    f"{counter}. {file_name} - {key}": value for key, value in content.items()
+                }
+                combined_content.update(prefixed_content)
+            else:
+                print(f"Warning: No content found in file {file}")
+        return combined_content
+
     @staticmethod
     def limit_word_count_preserve_newline(input_string, max_word_count):
         """
@@ -361,24 +446,6 @@ class ArticleTextProcessing:
 
         text = re.sub(r"\[([0-9, ]+)\]", replace_with_individual_brackets, text)
         text = re.sub(r"(\[\d+\])+", deduplicate_group, text)
-
-        # Deprecated: Remove sentence without proper ending punctuation and citations.
-        # Split the text into sentences (including citations).
-        # sentences_with_trailing = re.findall(r'([^.!?]*[.!?].*?)(?=[^.!?]*[.!?]|$)', text)
-
-        # Filter sentences to ensure they end with a punctuation mark and properly formatted citations
-        # complete_sentences = []
-        # for sentence in sentences_with_trailing:
-        #     # Check if the sentence ends with properly formatted citations
-        #     if re.search(r'[.!?]( \[\d+\])*$|^[^.!?]*[.!?]$', sentence.strip()):
-        #         complete_sentences.append(sentence.strip())
-
-        # combined_sentences = ' '.join(complete_sentences)
-
-        # Check for and append any complete citations that follow the last sentence
-        # trailing_citations = re.findall(r'(\[\d+\]) ', text[text.rfind(combined_sentences) + len(combined_sentences):])
-        # if trailing_citations:
-        #     combined_sentences += ' '.join(trailing_citations)
 
         # Regex pattern to match sentence endings, including optional citation markers.
         eos_pattern = r"([.!?])\s*(\[\d+\])?\s*"
@@ -487,61 +554,14 @@ class ArticleTextProcessing:
         return s
 
     @staticmethod
-    def parse_article_into_dict(input_string):
-        """
-        Parses a structured text into a nested dictionary. The structure of the text
-        is defined by markdown-like headers (using '#' symbols) to denote sections
-        and subsections. Each section can contain content and further nested subsections.
-
-        The resulting dictionary captures the hierarchical structure of sections, where
-        each section is represented as a key (the section's title) mapping to a value
-        that is another dictionary. This dictionary contains two keys:
-        - 'content': content of the section
-        - 'subsections': a list of dictionaries, each representing a nested subsection
-        following the same structure.
-
-        Args:
-            input_string (str): A string containing the structured text to parse.
-
-        Returns:
-            A dictionary representing contains the section title as the key, and another dictionary
-        as the value, which includes the 'content' and 'subsections' keys as described above.
-        """
-        lines = input_string.split("\n")
-        lines = [line for line in lines if line.strip()]
-        root = {"content": "", "subsections": {}}
-        current_path = [(root, -1)]  # (current_dict, level)
-
-        for line in lines:
-            if line.startswith("#"):
-                level = line.count("#")
-                title = line.strip("# ").strip()
-                new_section = {"content": "", "subsections": {}}
-
-                # Pop from stack until find the parent level
-                while current_path and current_path[-1][1] >= level:
-                    current_path.pop()
-
-                # Append new section to the nearest upper level's subsections
-                current_path[-1][0]["subsections"][title] = new_section
-                current_path.append((new_section, level))
-            else:
-                current_path[-1][0]["content"] += line + "\n"
-
-        return root["subsections"]
-
-    @staticmethod
-    def parse_markdown_file(file_path: str) -> Dict[str, str]:
-        with open(file_path, "r") as file:
-            content = file.read()
-        return ArticleTextProcessing.parse_article_into_dict(content)
-
-    @staticmethod
     def combine_markdown_contents(markdown_files: List[str]) -> Dict[str, Dict[str, Any]]:
         combined_content = {}
+        counter = 1
         for file in markdown_files:
             content = ArticleTextProcessing.parse_markdown_file(file)
-            combined_content.update(content)
+            prefixed_content = {f"{counter}. {key}": value for key, value in content.items()}
+            combined_content.update(prefixed_content)
+            counter += 1
         return combined_content
 
 

@@ -34,6 +34,7 @@ class StormTaskExtractionModule(TaskExtractionModule):
         """
         combined_content = kwargs.get("combined_content", "")
         callback_handler = kwargs.get("callback_handler")
+        additional_instructions = kwargs.get("additional_instructions", "")
 
         if callback_handler is not None:
             callback_handler.on_task_extraction_start()
@@ -41,12 +42,15 @@ class StormTaskExtractionModule(TaskExtractionModule):
         extracted_tasks = []
         tasks = self._extract_tasks_from_text(combined_content)
 
+        # Remove tasks from combined_content
+        cleaned_content = re.sub(r"\{\{[\s\S]+?\}\}", "", combined_content)
+
         for task in tasks:
             extracted_tasks.append(
                 {
                     "task": task,
-                    "description": f"Complete the task: {task}",
-                    "context": combined_content,
+                    "description": f"Complete the task: {task}. Follow these guidelines {additional_instructions}",
+                    "context": cleaned_content,
                 }
             )
 
@@ -77,6 +81,7 @@ class StormArticleCompletionModule(ArticleCompletionModule):
         article: StormArticle,
         information_table: InformationTable,
         callback_handler: Optional[BaseCallbackHandler] = None,
+        additional_instructions: str = "",
     ) -> StormArticle:
         """
         Extract tasks, complete them, and update the article.
@@ -95,6 +100,7 @@ class StormArticleCompletionModule(ArticleCompletionModule):
             information_table=information_table,
             combined_content=combined_content,
             callback_handler=callback_handler,
+            additional_instructions=additional_instructions,
         )
         completed_article = self._complete_tasks_and_integrate(article, tasks)
         completed_article.post_processing()
@@ -154,5 +160,5 @@ class CompleteTaskSignature(dspy.Signature):
         prefix="Draft your thought process here. Step by step ensure you have covered everything in the task: "
     )
     output: str = dspy.OutputField(
-        prefix="Review the scratchpad and provide the final answer. Return only the text pertinent to the provided task. Avoid outputting input fields, introductions, or wrappers"
+        prefix="Review the scratchpad and complete the task. Avoid outputting field names, introductions, or wrappers. Simply return the plain text completed task in markdown unless otherwise specified"
     )
