@@ -276,12 +276,18 @@ class ArticleTextProcessing:
     @staticmethod
     def preprocess_content(content: str) -> str:
         def clean_paragraph(paragraph: str) -> str:
+            # if its an html table, return it unchanged
+            if re.search(r"<table", paragraph):
+                return paragraph
             lines = paragraph.splitlines()
 
             # Check if the paragraph is a table
             if any("|" in line for line in lines):
                 # If it's a table, return it unchanged
                 return "\n".join(lines)
+            # if it starts with > its an admonition, return it unchanged
+            if paragraph.startswith(">"):
+                return paragraph
 
             # For non-table paragraphs, proceed with cleaning
             lines = list(dict.fromkeys(lines))  # Remove duplicates
@@ -302,7 +308,31 @@ class ArticleTextProcessing:
             return " ".join(lines)  # Join non-table lines
 
         paragraphs = re.split(r"\n{2,}", content)
-        cleaned_paragraphs = [clean_paragraph(p) for p in paragraphs if p.strip()]
+        # Merge table parts back together
+        merged_paragraphs = []
+        table_buffer = []
+        in_table = False
+
+        for para in paragraphs:
+            if re.search(r"<table", para):
+                in_table = True
+                table_buffer.append(para)
+            elif re.search(r"</table>", para):
+                in_table = False
+                table_buffer.append(para)
+                merged_paragraphs.append("\n".join(table_buffer))
+                table_buffer = []
+            elif in_table:
+                table_buffer.append(para)
+            else:
+                merged_paragraphs.append(para)
+
+        # If there's any remaining table content, add it
+        if table_buffer:
+            merged_paragraphs.append("\n".join(table_buffer))
+
+        # Now clean the merged paragraphs
+        cleaned_paragraphs = [clean_paragraph(p) for p in merged_paragraphs if p.strip()]
         return cleaned_paragraphs
 
     @staticmethod
