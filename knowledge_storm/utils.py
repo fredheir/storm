@@ -288,6 +288,12 @@ class ArticleTextProcessing:
             # if it starts with > its an admonition, return it unchanged
             if paragraph.startswith(">"):
                 return paragraph
+            # if it starts with - its a bullet point, return it unchanged
+            if paragraph.startswith("- "):
+                return paragraph
+            # catch numbered markdown lists with exactly two spaces (e.g., "1.  Item")
+            if re.match(r"^\s*\d+\.\s{2}", paragraph):
+                return paragraph
 
             # For non-table paragraphs, proceed with cleaning
             lines = list(dict.fromkeys(lines))  # Remove duplicates
@@ -298,9 +304,9 @@ class ArticleTextProcessing:
             artifact_patterns = [
                 r"^\s*//.*$",  # Single-line comments
                 r"^\s*/\*.*?\*/\s*$",  # Multi-line comments
-                r"^\s*TODO:.*$",  # TODO notes
-                r"^\s*FIXME:.*$",  # FIXME notes
-                r"^\s*DEBUG:.*$",  # DEBUG notes
+                r"^\s*TODO:.*$",
+                r"^\s*FIXME:.*$",
+                r"^\s*DEBUG:.*$",
             ]
             for pattern in artifact_patterns:
                 lines = [line for line in lines if not re.match(pattern, line)]
@@ -369,7 +375,7 @@ class ArticleTextProcessing:
     @staticmethod
     def combine_markdown_contents(markdown_files: List[str]) -> Dict[str, Dict[str, Any]]:
         combined_content = {}
-        for counter, file in enumerate(markdown_files, 1):
+        for counter, file in enumerate(markdown_files, 0):
             content = ArticleTextProcessing.parse_markdown_file(file)
             if content:
                 file_name = os.path.basename(file)
@@ -586,7 +592,7 @@ class ArticleTextProcessing:
     @staticmethod
     def combine_markdown_contents(markdown_files: List[str]) -> Dict[str, Dict[str, Any]]:
         combined_content = {}
-        counter = 1
+        counter = 0
         for file in markdown_files:
             content = ArticleTextProcessing.parse_markdown_file(file)
             prefixed_content = {f"{counter}. {key}": value for key, value in content.items()}
