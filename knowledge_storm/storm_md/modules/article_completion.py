@@ -109,6 +109,7 @@ class StormArticleCompletionModule(ArticleCompletionModule):
     def _complete_tasks_and_integrate(
         self, article: StormArticle, tasks: List[Dict[str, str]]
     ) -> StormArticle:
+        import time
         for task in tasks:
             task_result = self.task_completion(
                 task=task["task"],
@@ -116,6 +117,7 @@ class StormArticleCompletionModule(ArticleCompletionModule):
                 context=self._get_context(article, task["task"]),
             )
             self._update_article_content(article, task["task"], task_result.completion)
+            time.sleep(1)
         return article
 
     def _get_context(self, article: StormArticle, task: str) -> str:

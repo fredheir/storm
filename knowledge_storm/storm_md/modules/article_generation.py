@@ -112,6 +112,7 @@ class StormArticleGenerationModule(ArticleGenerationModule):
         return completed_article
 
     def _complete_tasks_and_integrate(self, article, tasks, callback_handler):
+        import time
         for task in tasks:
             task_result = self.task_completion(
                 task=task["task"], description=task["description"], context=task["context"]
@@ -122,6 +123,7 @@ class StormArticleGenerationModule(ArticleGenerationModule):
             for section in article.sections:
                 if task["task"] in section.content:
                     section.content = section.content.replace(f"{{{task['task']}}}", task_result.completion)
+            time.sleep(1)
 
         return article
 
